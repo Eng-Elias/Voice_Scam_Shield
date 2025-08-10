@@ -1,5 +1,13 @@
 # Voice Scam Shield
 
+## Project Summary
+
+Voice scams, such as phishing attempts over the phone, represent a significant threat to individuals, particularly the elderly and vulnerable. These scams often rely on creating a sense of urgency and tricking victims into revealing sensitive information or making payments. The **Voice Scam Shield** project addresses this problem by providing a tool to detect and flag potential scam calls.
+
+Our solution is a web application built with Python and Streamlit that analyzes audio content from either a live microphone stream or an uploaded audio file. It leverages OpenAI's Whisper model to transcribe the speech to text. This transcript is then subjected to a two-pronged analysis. First, a rapid, local pattern-matching algorithm scans for common scam-related keywords and phrases (e.g., "gift card," "urgent payment," "remote access"). Second, for a deeper contextual understanding, the transcript is sent to Google's Gemini Pro model, which assesses the conversation for signs of fraudulent intent.
+
+The application provides a risk score and a clear visual alert (Low, Medium, High) to the user, along with actionable recommendations. This dual-analysis approach ensures both speed and accuracy, offering a robust shield against voice scams. The core technologies used are Python 3.11, Streamlit, OpenAI Whisper, and the Google Gemini API.
+
 Voice scam detection for uploaded audio files and live microphone streams.
 
 Detect common scam patterns and leverage Google Gemini for advanced, AI-powered analysis. Transcribe speech via OpenAI Whisper. Built with Streamlit for rapid prototyping and live dashboards.
