@@ -7,13 +7,9 @@ import altair as alt
 import numpy as np
 import pandas as pd
 import streamlit as st
-from streamlit_webrtc import (
-    AudioProcessorBase,
-    RTCConfiguration,
-    WebRtcMode,
-    webrtc_streamer,
-)
-import av
+from streamlit_mic_recorder import mic_recorder
+from pydub import AudioSegment
+import io
 
 from config.settings import get_settings, Settings
 from src.audio_processor import AudioProcessor as WhisperEngine
@@ -77,61 +73,67 @@ st.caption(
 )
 
 
-# ---------- Stream Processor ----------
-class TranscriberProcessor(AudioProcessorBase):
-    def __init__(self, engine: WhisperEngine, detector: ScamDetector, settings: Settings):
-        self.engine = engine
-        self.detector = detector
-        self.settings = settings
-        self.buffer = np.zeros(0, dtype=np.float32)
-        self.sample_rate = 16000
-        self.chunk_samples = int(self.settings.chunk_seconds * self.sample_rate)
-        self.last_transcript = ""
-        self.last_analysis = None
-        self.timeline: List[Dict[str, Any]] = []
-        self.amplitude = 0.0
-        self.wave: List[Dict[str, Any]] = []
+# ---------- Mic Recorder Helpers ----------
+def _decode_wav_bytes_to_float32(audio_bytes: bytes) -> (np.ndarray, int):
+    """Decode WAV bytes to mono float32 numpy array in [-1, 1] and return (samples, sample_rate)."""
+    bio = io.BytesIO(audio_bytes)
+    seg = AudioSegment.from_file(bio, format="wav")
+    # Ensure 16kHz mono 16-bit PCM for Whisper
+    seg = seg.set_frame_rate(16000).set_channels(1).set_sample_width(2)
+    sr = seg.frame_rate
+    arr = np.array(seg.get_array_of_samples())
+    x = (arr.astype(np.float32) / 32767.0).astype(np.float32)
+    return x, sr
 
-    def recv(self, frame: av.AudioFrame) -> av.AudioFrame:
-        # Convert to mono float32 [-1,1]
-        samples = frame.to_ndarray()
-        sr = int(frame.sample_rate)
-        if samples.ndim == 2:  # (channels, samples)
-            samples = samples.mean(axis=0)
-        if samples.dtype != np.float32:
-            # whisper expects float32 [-1,1]
-            samples = samples.astype(np.float32)
-        # Rough normalization if integer-like range
-        if samples.max() > 1.5:
-            samples = samples / 32768.0
-        self.amplitude = float(np.clip(np.abs(samples).mean() * 5, 0.0, 1.0))
 
-        if sr != self.sample_rate:
-            self.sample_rate = sr
-            self.chunk_samples = int(self.settings.chunk_seconds * self.sample_rate)
-        self.buffer = np.concatenate([self.buffer, samples])
+def _process_new_mic_audio(audio: Dict[str, Any], engine: WhisperEngine, detector: ScamDetector, settings: Settings) -> None:
+    """On receiving a new audio dict from mic_recorder, split into chunks and update transcript/analysis."""
+    if not audio:
+        return
+    last_id = st.session_state.get("_mic_last_id", 0)
+    if audio.get("id", 0) <= last_id:
+        return
+    st.session_state["_mic_last_id"] = audio.get("id", 0)
 
-        # Track amplitude timeline locally (thread-safe; no Streamlit calls here)
-        self.wave.append({"t": time.time(), "amp": float(self.amplitude)})
-        self.wave = self.wave[-300:]
+    if not engine.is_ready():
+        return
 
-        if len(self.buffer) >= self.chunk_samples:
-            chunk = self.buffer[: self.chunk_samples]
-            self.buffer = self.buffer[self.chunk_samples :]
-            if self.engine.is_ready():
-                text = self.engine.transcribe_stream_chunk(chunk, self.sample_rate)
-            else:
-                text = ""
+    with st.spinner("Processing recorded audio..."):
+        x, sr = _decode_wav_bytes_to_float32(audio["bytes"])  # sr will be 16000
+        n = len(x)
+        if n == 0:
+            return
+
+        chunk_samples = int(max(1, settings.chunk_seconds) * sr)
+
+        # Amplitude envelope for visualization (0.1s steps)
+        step = max(1, int(0.1 * sr))
+        base_t = time.time()
+        for i in range(0, n, step):
+            seg = x[i : i + step]
+            if len(seg) == 0:
+                continue
+            amp = float(np.clip(np.abs(seg).mean() * 5.0, 0.0, 1.0))
+            st.session_state.stream_wave.append({"t": base_t + (i / sr), "amp": amp})
+        st.session_state.stream_wave = st.session_state.stream_wave[-300:]
+
+        # Transcribe each chunk and update analysis incrementally
+        for s in range(0, n, chunk_samples):
+            e = min(n, s + chunk_samples)
+            chunk = x[s:e]
+            if len(chunk) < int(0.5 * sr):
+                # Skip too-short chunk to reduce overhead
+                continue
+            text = engine.transcribe_stream_chunk(chunk, sr)
             if text:
-                self.last_transcript = (self.last_transcript + " " + text).strip()
-                analysis = self.detector.analyze_text(self.last_transcript[-2000:])
-                self.last_analysis = analysis
-                self.timeline.append({
+                st.session_state.stream_transcript = (st.session_state.stream_transcript + " " + text).strip()
+                analysis = detector.analyze_text(st.session_state.stream_transcript[-2000:])
+                st.session_state["_last_analysis"] = analysis
+                st.session_state.stream_scores.append({
                     "t": time.time(),
                     "score": float(analysis.risk_score),
                     "level": analysis.risk_level,
                 })
-        return frame
 
 
 # ---------- Tabs ----------
@@ -139,51 +141,46 @@ stream_tab, file_tab, history_tab = st.tabs(["Stream Analysis", "File Analysis",
 
 
 with stream_tab:
-    st.subheader("🎙️ Live Microphone Analysis")
+    st.subheader("🎙️ Live Microphone Analysis (Recorder)")
     if not whisper_engine.is_ready():
         st.warning(
             "Whisper is not available. Install dependencies from requirements.txt to enable transcription."
         )
 
-    rtc_config = {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
-
-    ctx = webrtc_streamer(
-        key="vss-stream",
-        mode=WebRtcMode.SENDONLY,
-        audio_receiver_size=256,
-        media_stream_constraints={"audio": True, "video": False},
-        frontend_rtc_configuration=rtc_config,
-        async_processing=False,
-        audio_processor_factory=lambda: TranscriberProcessor(whisper_engine, scam_detector, settings),
+    # Record audio using mic_recorder. We request WAV for simpler decoding.
+    audio = mic_recorder(
+        start_prompt="⏺️ Start recording",
+        stop_prompt="⏹️ Stop",
+        format="wav",
+        key="vss_mic",
     )
 
-    # Require the user to click Start (and grant mic permission)
-    if not ctx or not ctx.state.playing:
-        st.info("Click Start above and allow microphone access. Use the Local URL (localhost) for mic streaming.")
-    
+    # When a new clip is received (after you press Stop), process it in CHUNK_SECONDS windows
+    if audio:
+        _process_new_mic_audio(audio, whisper_engine, scam_detector, settings)
+
     col1, col2 = st.columns([2, 1])
     with col1:
-        st.caption("Real-time transcript")
+        st.caption("Transcript (cumulative)")
         st.text_area(
             "Transcript",
-            value=(ctx.audio_processor.last_transcript if ctx and ctx.audio_processor else ""),
+            value=st.session_state.stream_transcript,
             height=200,
             label_visibility="collapsed",
         )
     with col2:
         st.caption("Audio level")
-        lvl = st.session_state.get("_lvl", 0.0)
-        if ctx and ctx.audio_processor:
-            lvl = float(ctx.audio_processor.amplitude)
-            st.session_state["_lvl"] = lvl
+        lvl = 0.0
+        if st.session_state.stream_wave:
+            lvl = float(st.session_state.stream_wave[-1]["amp"])
         st.progress(lvl)
 
     # Mini waveform / level trace
-    if ctx and ctx.audio_processor and ctx.audio_processor.wave:
+    if st.session_state.stream_wave:
         st.caption("Waveform (relative level)")
         dfw = pd.DataFrame([
             {"Time": pd.to_datetime(x["t"], unit="s"), "Level": x["amp"]}
-            for x in ctx.audio_processor.wave
+            for x in st.session_state.stream_wave
         ])
         wchart = (
             alt.Chart(dfw)
@@ -193,16 +190,16 @@ with stream_tab:
         )
         st.altair_chart(wchart, use_container_width=True)
 
-    if ctx and ctx.audio_processor and ctx.audio_processor.last_analysis:
+    if st.session_state.get("_last_analysis"):
         st.caption("Live alert")
-        render_alert(st, ctx.audio_processor.last_analysis, enable_audio=enable_beep)
+        render_alert(st, st.session_state["_last_analysis"], enable_audio=enable_beep)
 
     # Confidence over time chart
-    if ctx and ctx.audio_processor and ctx.audio_processor.timeline:
+    if st.session_state.stream_scores:
         st.caption("Confidence over time")
         df = pd.DataFrame([
             {"Time": pd.to_datetime(x["t"], unit="s"), "Score": x["score"]}
-            for x in ctx.audio_processor.timeline
+            for x in st.session_state.stream_scores
         ])
         chart = (
             alt.Chart(df)
@@ -211,11 +208,6 @@ with stream_tab:
             .properties(height=200)
         )
         st.altair_chart(chart, use_container_width=True)
-
-    st.info(
-        "Tip: Keep the tab active and your microphone enabled. Transcripts update in chunks (\n"
-        f"~{settings.chunk_seconds:.0f}s)."
-    )
 
 
 with file_tab:

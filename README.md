@@ -15,7 +15,7 @@ Detect common scam patterns and leverage Google Gemini for advanced, AI-powered 
 
 ## Tech Stack
 - Python
-- Streamlit + streamlit-webrtc
+- Streamlit + streamlit-mic-recorder
 - OpenAI Whisper (speech-to-text)
 - Google Gemini API (semantic analysis)
 
@@ -81,12 +81,12 @@ Voice_Scam_Shield/
 
 ## Notes & Constraints
 - Whisper models require PyTorch; on CPU, start with the `tiny` or `base` model for speed.
-- Live streaming quality depends on network and browser audio constraints.
+- Microphone capture uses `streamlit-mic-recorder`. The audio is returned when you press Stop, then processed in configurable chunks (`CHUNK_SECONDS`, default 5s) to update the transcript and risk analysis cumulatively.
 - Gemini analysis requires a valid API key. The app will gracefully fallback to pattern-only detection if not configured.
 
 ## Help / Tips
 - Use `.env` to set `GOOGLE_API_KEY` and adjust sensitivity.
-- If streaming doesn't work, try a different browser or fallback to File Analysis.
+- To change chunking for mic recordings, set `CHUNK_SECONDS` in `.env` or use the UI slider for sensitivity and keep default chunking at 5s.
 - For faster transcription on CPU, set `WHISPER_MODEL=tiny` in `.env`.
 
 ## License
