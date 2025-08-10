@@ -90,6 +90,7 @@ class TranscriberProcessor(AudioProcessorBase):
         self.last_analysis = None
         self.timeline: List[Dict[str, Any]] = []
         self.amplitude = 0.0
+        self.wave: List[Dict[str, Any]] = []
 
     def recv(self, frame: av.AudioFrame) -> av.AudioFrame:
         # Convert to mono float32 [-1,1]
@@ -110,9 +111,9 @@ class TranscriberProcessor(AudioProcessorBase):
             self.chunk_samples = int(self.settings.chunk_seconds * self.sample_rate)
         self.buffer = np.concatenate([self.buffer, samples])
 
-        # Track amplitude timeline for quick waveform/level chart
-        st.session_state.stream_wave.append({"t": time.time(), "amp": float(self.amplitude)})
-        st.session_state.stream_wave = st.session_state.stream_wave[-300:]
+        # Track amplitude timeline locally (thread-safe; no Streamlit calls here)
+        self.wave.append({"t": time.time(), "amp": float(self.amplitude)})
+        self.wave = self.wave[-300:]
 
         if len(self.buffer) >= self.chunk_samples:
             chunk = self.buffer[: self.chunk_samples]
@@ -130,9 +131,6 @@ class TranscriberProcessor(AudioProcessorBase):
                     "score": float(analysis.risk_score),
                     "level": analysis.risk_level,
                 })
-                # Mirror to session state for UI
-                st.session_state.stream_transcript = self.last_transcript
-                st.session_state.stream_scores = self.timeline[-300:]
         return frame
 
 
@@ -147,24 +145,31 @@ with stream_tab:
             "Whisper is not available. Install dependencies from requirements.txt to enable transcription."
         )
 
-    rtc_config = RTCConfiguration({
-        "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}],
-    })
+    rtc_config = {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
 
     ctx = webrtc_streamer(
         key="vss-stream",
         mode=WebRtcMode.SENDONLY,
         audio_receiver_size=256,
         media_stream_constraints={"audio": True, "video": False},
-        rtc_configuration=rtc_config,
+        frontend_rtc_configuration=rtc_config,
         async_processing=False,
         audio_processor_factory=lambda: TranscriberProcessor(whisper_engine, scam_detector, settings),
     )
 
+    # Require the user to click Start (and grant mic permission)
+    if not ctx or not ctx.state.playing:
+        st.info("Click Start above and allow microphone access. Use the Local URL (localhost) for mic streaming.")
+    
     col1, col2 = st.columns([2, 1])
     with col1:
         st.caption("Real-time transcript")
-        st.text_area("", value=st.session_state.stream_transcript, height=200)
+        st.text_area(
+            "Transcript",
+            value=(ctx.audio_processor.last_transcript if ctx and ctx.audio_processor else ""),
+            height=200,
+            label_visibility="collapsed",
+        )
     with col2:
         st.caption("Audio level")
         lvl = st.session_state.get("_lvl", 0.0)
@@ -174,11 +179,11 @@ with stream_tab:
         st.progress(lvl)
 
     # Mini waveform / level trace
-    if st.session_state.stream_wave:
+    if ctx and ctx.audio_processor and ctx.audio_processor.wave:
         st.caption("Waveform (relative level)")
         dfw = pd.DataFrame([
             {"Time": pd.to_datetime(x["t"], unit="s"), "Level": x["amp"]}
-            for x in st.session_state.stream_wave
+            for x in ctx.audio_processor.wave
         ])
         wchart = (
             alt.Chart(dfw)
@@ -193,11 +198,11 @@ with stream_tab:
         render_alert(st, ctx.audio_processor.last_analysis, enable_audio=enable_beep)
 
     # Confidence over time chart
-    if st.session_state.stream_scores:
+    if ctx and ctx.audio_processor and ctx.audio_processor.timeline:
         st.caption("Confidence over time")
         df = pd.DataFrame([
             {"Time": pd.to_datetime(x["t"], unit="s"), "Score": x["score"]}
-            for x in st.session_state.stream_scores
+            for x in ctx.audio_processor.timeline
         ])
         chart = (
             alt.Chart(df)
