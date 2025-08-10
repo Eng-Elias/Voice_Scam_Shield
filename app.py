@@ -68,7 +68,7 @@ scam_detector = ScamDetector(settings)
 # ---------- Header ----------
 st.title("🛡️ Voice Scam Shield")
 st.caption(
-    "Detect potential scams in real time from microphone streams or uploaded audio files. "
+    "Detect potential scams real time from microphone streams or uploaded audio files. "
     "Transcribe with Whisper. Optionally analyze with Gemini for semantic cues."
 )
 

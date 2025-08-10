@@ -1,14 +1,14 @@
 # Voice Scam Shield
 
-Real-time voice scam detection for uploaded audio files and live microphone streams.
+Voice scam detection for uploaded audio files and live microphone streams.
 
 Detect common scam patterns and leverage Google Gemini for advanced, AI-powered analysis. Transcribe speech via OpenAI Whisper. Built with Streamlit for rapid prototyping and live dashboards.
 
 ## Key Features
-- Real-time audio stream analysis (microphone)
+- Audio stream analysis (microphone)
 - Audio file upload and batch analysis
 - AI-powered scam detection via Google Gemini
-- Real-time transcription with OpenAI Whisper
+- Transcription with OpenAI Whisper
 - Visual alerts with confidence scoring
 - Support for MP3, WAV, M4A, FLAC
 - Export analysis results
