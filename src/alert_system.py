@@ -1,3 +1,6 @@
+# This script manages the visual and audio alerting system for the Streamlit user interface.
+# It defines different alert styles based on risk levels (low, medium, high) and provides recommendations.
+
 from dataclasses import dataclass
 from typing import List
 import time
@@ -12,6 +15,7 @@ from .scam_detector import ScamAnalysis
 
 @dataclass
 class AlertStyle:
+    """Represents the visual style for a specific alert level."""
     color: str
     bg: str
     emoji: str
@@ -25,6 +29,7 @@ LEVEL_STYLE = {
 
 
 def recommendations(analysis: ScamAnalysis) -> List[str]:
+    """Generates a list of security recommendations based on the analysis results."""
     recs: List[str] = []
     text = analysis.text.lower()
     if any(k in text for k in ["otp", "one-time password", "password"]):
@@ -43,6 +48,7 @@ def recommendations(analysis: ScamAnalysis) -> List[str]:
 
 
 def render_alert(st, analysis: ScamAnalysis, enable_audio: bool = False, throttle_seconds: float = 2.0) -> None:
+    """Renders a visual alert component in the Streamlit interface based on the scam analysis."""
     style = LEVEL_STYLE.get(analysis.risk_level, LEVEL_STYLE["low"])
     st.markdown(
         f"<div style='padding:0.9rem;border-radius:8px;background:{style.bg};border-left:6px solid {style.color};'>"

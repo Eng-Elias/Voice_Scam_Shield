@@ -1,3 +1,9 @@
+# This script implements the core scam detection logic for the Voice Scam Shield application.
+# It combines two methods for analysis:
+# 1. A fast, local pattern-based matching against a list of known scam-related keywords.
+# 2. An advanced semantic analysis using the Google Gemini model for deeper contextual understanding.
+# The final risk score is a blend of the results from both methods.
+
 import json
 import math
 import re
@@ -24,6 +30,7 @@ JSON_INSTRUCTIONS = (
 
 @dataclass
 class ScamAnalysis:
+    """Dataclass to hold the complete results of a scam analysis for a given text."""
     text: str
     risk_score: float
     risk_level: str
@@ -35,7 +42,9 @@ class ScamAnalysis:
 
 
 class ScamDetector:
+    """A class that analyzes text to detect potential scams using patterns and a generative AI model."""
     def __init__(self, settings: Settings):
+        """Initializes the ScamDetector, setting up the Gemini model if an API key is available."""
         self.settings = settings
         self._gemini_model = None
         if _GEMINI_AVAILABLE and self.settings.google_api_key:
@@ -47,6 +56,7 @@ class ScamDetector:
 
     # ----- Pattern-based detection -----
     def _pattern_hits(self, text: str) -> List[str]:
+        """Finds all occurrences of predefined scam-related patterns in the text."""
         text_l = text.lower()
         hits: List[str] = []
         for p in self.settings.scam_patterns:
@@ -67,6 +77,7 @@ class ScamDetector:
 
     # ----- Gemini analysis -----
     def _gemini_analyze(self, text: str) -> (float, str, List[str]):
+        """Analyzes the text using the Gemini model to get a risk score, summary, and reasons."""
         if not (_GEMINI_AVAILABLE and self._gemini_model):
             return 0.0, "", []
         try:
@@ -91,11 +102,13 @@ class ScamDetector:
 
     # ----- Blending & levels -----
     def _blend(self, pattern_score: float, gemini_score: float) -> float:
+        """Combines the pattern-based score and the Gemini score into a single, blended risk score."""
         if gemini_score <= 0.0:
             return pattern_score
         return 0.4 * pattern_score + 0.6 * gemini_score
 
     def _level(self, score: float) -> str:
+        """Converts a numerical risk score into a qualitative risk level (low, medium, high)."""
         s = float(self.settings.scam_sensitivity)
         if score >= min(0.75, s + 0.25):
             return "high"
@@ -105,6 +118,7 @@ class ScamDetector:
 
     # ----- Public API -----
     def analyze_text(self, text: str) -> ScamAnalysis:
+        """The main public method to analyze a piece of text for scams."""
         text = (text or "").strip()
         pat_score, matches = self._pattern_score(text)
         gem_score, gem_summary, reasons = self._gemini_analyze(text)

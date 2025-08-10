@@ -1,3 +1,7 @@
+# This script provides an audio processing and transcription engine using OpenAI's Whisper model.
+# It is designed to handle both file-based transcription and real-time audio stream processing.
+# The class encapsulates the logic for loading the Whisper model, resampling audio, and performing transcription.
+
 import math
 import threading
 from dataclasses import dataclass
@@ -17,11 +21,18 @@ except Exception:
 
 @dataclass
 class TranscriptionResult:
+    """Dataclass to hold the results of a transcription task."""
     text: str
     segments: List[Dict[str, Any]]
 
 
 class AudioProcessor:
+    """
+    A wrapper class for the Whisper transcription model.
+
+    This class manages loading the Whisper model, and provides methods to transcribe
+    both audio files and raw audio chunks from a stream.
+    """
     """
     Audio processing and transcription using OpenAI Whisper.
     - File transcription
@@ -34,9 +45,11 @@ class AudioProcessor:
         self._model_lock = threading.Lock()
 
     def is_ready(self) -> bool:
+        """Checks if the Whisper library is installed and available."""
         return _WHISPER_AVAILABLE
 
     def _ensure_model(self) -> None:
+        """Loads the Whisper model into memory if it hasn't been loaded yet."""
         if not _WHISPER_AVAILABLE:
             raise RuntimeError(
                 "Whisper is not available. Please install dependencies from requirements.txt"
@@ -83,6 +96,7 @@ class AudioProcessor:
 
     # ---------- File transcription ----------
     def transcribe_file(self, wav_path: str) -> TranscriptionResult:
+        """Transcribes a given audio file and returns the transcription result."""
         """Transcribe an audio file path (preferably 16kHz mono WAV)."""
         self._ensure_model()
         result = self._model.transcribe(wav_path, fp16=False)
@@ -92,8 +106,9 @@ class AudioProcessor:
 
     # ---------- Streaming chunk transcription ----------
     def transcribe_stream_chunk(
-        self, audio_chunk: np.ndarray, chunk_sample_rate: int
+            self, audio_chunk: np.ndarray, chunk_sample_rate: int
     ) -> str:
+        """Transcribes a single chunk of audio from a stream."""
         """
         Transcribe a short chunk of audio from a live stream.
         audio_chunk: np array of shape (samples,) or (channels, samples)

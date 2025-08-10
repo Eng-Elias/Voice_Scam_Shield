@@ -1,3 +1,6 @@
+# This file defines the configuration settings for the Voice Scam Shield application.
+# It uses Pydantic's dataclasses to structure settings and loads values from environment variables (.env file).
+
 import os
 from dataclasses import dataclass, field
 from typing import List
@@ -24,6 +27,7 @@ def _get_int(name: str, default: int) -> int:
 
 @dataclass
 class Settings:
+    """Dataclass holding all application settings, loaded from environment variables with defaults."""
     # API & Models
     google_api_key: str = os.getenv("GOOGLE_API_KEY", "")
     gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
@@ -72,4 +76,5 @@ class Settings:
 
 
 def get_settings() -> Settings:
+    """Factory function to create and return a Settings instance."""
     return Settings()

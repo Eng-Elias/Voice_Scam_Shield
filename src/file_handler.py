@@ -1,3 +1,7 @@
+# This script provides utilities for handling audio files.
+# It supports loading audio from uploaded files or local paths, converting them to a standard format (16kHz mono WAV),
+# and managing temporary files to ensure the application remains clean.
+
 import io
 import os
 import tempfile
@@ -18,6 +22,7 @@ SUPPORTED_INPUT_EXTS = {".mp3", ".wav", ".m4a", ".flac"}
 
 @dataclass
 class FileMeta:
+    """Dataclass to store metadata about a processed audio file."""
     path: str
     original_name: str
     duration_seconds: float
@@ -32,11 +37,13 @@ def _safe_suffix(name: str) -> str:
 
 
 def validate_extension(filename: str) -> bool:
+    """Checks if a file has a supported audio extension."""
     _, ext = os.path.splitext(filename.lower())
     return ext in SUPPORTED_INPUT_EXTS
 
 
 def load_audiosegment_from_uploaded(file) -> AudioSegment:
+    """Loads a pydub AudioSegment from a file-like object (e.g., Streamlit's UploadedFile)."""
     # `file` can be a Streamlit UploadedFile or any file-like object
     raw = file.read() if hasattr(file, "read") else file
     bio = io.BytesIO(raw)
@@ -44,10 +51,12 @@ def load_audiosegment_from_uploaded(file) -> AudioSegment:
 
 
 def load_audiosegment_from_path(path: str) -> AudioSegment:
+    """Loads a pydub AudioSegment from a local file path."""
     return AudioSegment.from_file(path)
 
 
 def convert_to_wav_mono_16k(seg: AudioSegment) -> Tuple[str, FileMeta]:
+    """Converts an AudioSegment to a 16kHz mono WAV file, saved in a temporary directory."""
     seg = seg.set_frame_rate(16000).set_channels(1).set_sample_width(2)  # 16-bit PCM
     tmpdir = tempfile.mkdtemp(prefix="vss_")
     out_path = os.path.join(tmpdir, "converted.wav")
@@ -64,6 +73,7 @@ def convert_to_wav_mono_16k(seg: AudioSegment) -> Tuple[str, FileMeta]:
 
 
 def process_uploaded_file(file) -> Tuple[str, FileMeta]:
+    """Processes an uploaded audio file, converting it to the standard WAV format."""
     if not hasattr(file, "name"):
         raise ValueError("Invalid uploaded file")
     if not validate_extension(file.name):
@@ -73,6 +83,7 @@ def process_uploaded_file(file) -> Tuple[str, FileMeta]:
 
 
 def process_file_path(path: str) -> Tuple[str, FileMeta]:
+    """Processes a local audio file path, converting it to the standard WAV format."""
     if not os.path.exists(path):
         raise FileNotFoundError(path)
     if not validate_extension(path):
@@ -82,6 +93,7 @@ def process_file_path(path: str) -> Tuple[str, FileMeta]:
 
 
 def audiosegment_from_ndarray(data: np.ndarray, sample_rate: int, channels: int) -> AudioSegment:
+    """Creates a pydub AudioSegment from a NumPy array."""
     """
     data: float32 or int16 numpy array. Shape: (samples,) for mono or (channels, samples).
     Converts to 16-bit PCM AudioSegment.
@@ -105,6 +117,7 @@ def audiosegment_from_ndarray(data: np.ndarray, sample_rate: int, channels: int)
 
 
 def cleanup_temp_paths(paths: List[str]) -> None:
+    """Removes temporary directories and files created during file processing."""
     for p in paths:
         try:
             if os.path.isdir(p):

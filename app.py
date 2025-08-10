@@ -1,3 +1,7 @@
+# This script is the main entry point for the Voice Scam Shield application, a Streamlit web app.
+# It handles the user interface, real-time microphone analysis, and file-based audio analysis.
+# The app uses Whisper for transcription and can leverage Gemini for semantic scam detection.
+
 import json
 import time
 from datetime import datetime
@@ -75,6 +79,7 @@ st.caption(
 
 # ---------- Mic Recorder Helpers ----------
 def _decode_wav_bytes_to_float32(audio_bytes: bytes) -> (np.ndarray, int):
+    """Decodes WAV audio bytes into a mono float32 numpy array and its sample rate."""
     """Decode WAV bytes to mono float32 numpy array in [-1, 1] and return (samples, sample_rate)."""
     bio = io.BytesIO(audio_bytes)
     seg = AudioSegment.from_file(bio, format="wav")
@@ -87,6 +92,7 @@ def _decode_wav_bytes_to_float32(audio_bytes: bytes) -> (np.ndarray, int):
 
 
 def _process_new_mic_audio(audio: Dict[str, Any], engine: WhisperEngine, detector: ScamDetector, settings: Settings) -> None:
+    """Processes a new audio chunk from the microphone recorder."""
     """On receiving a new audio dict from mic_recorder, split into chunks and update transcript/analysis."""
     if not audio:
         return
