@@ -17,7 +17,7 @@ except Exception:
 JSON_INSTRUCTIONS = (
     "You are a security assistant detecting phone/call scams. "
     "Given a transcript, analyze whether it is likely a scam. "
-    "Respond STRICTLY in JSON with keys: risk_score (0..1 float), reasons (list of short strings), summary (short string). "
+    "Respond STRICTLY in JSON with keys: risk_score (0..1 float - higher score is more risky), reasons (list of short strings), summary (short string). "
     "Focus on intent to defraud, urgency, payment via gift cards/crypto/wire, remote-access requests, account verification demands."
 )
 
@@ -93,11 +93,11 @@ class ScamDetector:
     def _blend(self, pattern_score: float, gemini_score: float) -> float:
         if gemini_score <= 0.0:
             return pattern_score
-        return 0.6 * pattern_score + 0.4 * gemini_score
+        return 0.4 * pattern_score + 0.6 * gemini_score
 
     def _level(self, score: float) -> str:
         s = float(self.settings.scam_sensitivity)
-        if score >= min(0.9, s + 0.25):
+        if score >= min(0.75, s + 0.25):
             return "high"
         if score >= s:
             return "medium"
@@ -109,6 +109,7 @@ class ScamDetector:
         pat_score, matches = self._pattern_score(text)
         gem_score, gem_summary, reasons = self._gemini_analyze(text)
         risk = self._blend(pat_score, gem_score)
+        print({"risk": risk, "pat_score": pat_score, "matches": matches, "gem_score": gem_score, "gem_summary": gem_summary, "reasons": reasons})
         return ScamAnalysis(
             text=text,
             risk_score=risk,
